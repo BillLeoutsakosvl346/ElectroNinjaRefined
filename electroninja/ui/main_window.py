@@ -3,8 +3,8 @@
 import logging
 import os
 import re
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSlot
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QMessageBox
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSlot, QTimer
 from electroninja.config.settings import Config
 from electroninja.utils.async_workers import ElectroNinjaWorker
 from electroninja.utils.error_handler import handle_error
@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         # Current tracking
         self.current_prompt_id = 1
         self.current_iteration = 0
+        self.current_request = ""
         
         # Processing state
         self.is_processing = False
@@ -152,6 +153,9 @@ class MainWindow(QMainWindow):
         if self.is_processing:
             return
             
+        # Store the current request
+        self.current_request = message
+            
         # Set processing state
         self.is_processing = True
         self.right_panel.set_processing(True)
@@ -242,8 +246,39 @@ class MainWindow(QMainWindow):
         # Set the code with animation
         self.left_panel.set_code(clean_asc_code, animated=True)
         
+        # Check if we need to initiate image loading manually
+        self._check_for_existing_image()
+        
+    def _check_for_existing_image(self):
+        """Check for existing image and manually load it if found"""
+        try:
+            # Look for the image at the expected path
+            prompt_id = self.current_prompt_id - 1  # We already incremented
+            iteration = self.current_iteration
+            
+            image_path = os.path.join(
+                self.config.OUTPUT_DIR,
+                f"prompt{prompt_id}", 
+                f"output{iteration}",
+                "image.png"
+            )
+            
+            # If image exists but hasn't been processed yet, load it
+            if os.path.exists(image_path):
+                logger.info(f"Found existing image at {image_path}, loading it")
+                QTimer.singleShot(200, lambda: self.on_image_generated(image_path))
+        except Exception as e:
+            logger.error(f"Error checking for existing image: {str(e)}")
+        
     def on_image_generated(self, image_path):
         """Process image generation, extracting iteration info"""
+        # Verify image exists
+        if not os.path.exists(image_path):
+            logger.error(f"Image file not found: {image_path}")
+            return
+            
+        logger.info(f"Processing generated image: {image_path}")
+            
         # Extract iteration number if present
         if "output" in image_path:
             try:
@@ -251,24 +286,73 @@ class MainWindow(QMainWindow):
                 if match:
                     iteration = int(match.group(1))
                     self.current_iteration = iteration
-            except:
-                pass
+                    logger.info(f"Extracted iteration {iteration} from image path")
+            except Exception as e:
+                logger.error(f"Error parsing iteration from path: {str(e)}")
                 
-        # Update middle panel
+        # Update middle panel with the image
         self.middle_panel.set_circuit_image(image_path, self.current_iteration)
+        
+        # After loading the image, we should trigger vision evaluation if it hasn't been done
+        self._check_vision_evaluation(image_path)
+    
+    def _check_vision_evaluation(self, image_path):
+        """Trigger vision evaluation for images that need it"""
+        try:
+            # Extract prompt ID and iteration from the image path
+            prompt_id_match = re.search(r'prompt(\d+)', image_path)
+            iteration_match = re.search(r'output(\d+)', image_path)
+            
+            if prompt_id_match and iteration_match:
+                prompt_id = int(prompt_id_match.group(1))
+                iteration = int(iteration_match.group(1))
+                
+                # If it's the current request and the worker is running 
+                # but we haven't seen vision feedback, manually trigger it
+                if (self.worker and self.worker.isRunning() and 
+                    prompt_id == self.current_prompt_id - 1):
+                    
+                    logger.info(f"Checking if vision feedback needed for image: {image_path}")
+                    
+                    # If worker has vision analyzer, trigger it manually
+                    if hasattr(self.worker, 'manual_vision_evaluation'):
+                        logger.info(f"Triggering manual vision evaluation for image: {image_path}")
+                        self.worker.manual_vision_evaluation(image_path, self.current_request)
+        except Exception as e:
+            logger.error(f"Error in vision evaluation check: {str(e)}")
 
     def on_vision_feedback(self, feedback):
         """Handle vision feedback"""
         logger.info(f"Received vision feedback: {'Y' if feedback.strip() == 'Y' else 'Needs improvement'}")
         
-        # The chat response will be handled by the feedback_response_hook
-        # This is just for logging or any additional UI updates
+        # The feedback response will be handled by the feedback_response_hook in async_workers.py
+        # and will come back through the chatResponseGenerated signal
+        
+        # For debugging, log what we received
+        if feedback.strip() == 'Y':
+            logger.info("Circuit verified by vision model")
+        else:
+            logger.info("Circuit needs improvement according to vision model")
+            
+        # If the worker is still running, make sure vision feedback is processed
+        if self.worker and self.worker.isRunning():
+            if hasattr(self.worker, 'process_vision_feedback'):
+                logger.info("Triggering manual vision feedback processing")
+                self.worker.process_vision_feedback(feedback)
 
     def handle_result(self, result):
         """Handle processing result"""
         try:
-            # Just reset processing state, let LLM handle any messages
-            pass
+            # Log completion status
+            if result.get("success", False):
+                logger.info("Processing completed successfully")
+            else:
+                logger.warning(f"Processing completed with issues: {result.get('final_status', 'Unknown status')}")
+                
+            # Check if we need to manually process any results
+            if not result.get("vision_processed", False):
+                logger.info("Vision processing may not have completed, checking for outputs")
+                self._check_for_existing_image()
         finally:
             # Reset processing state
             self.is_processing = False

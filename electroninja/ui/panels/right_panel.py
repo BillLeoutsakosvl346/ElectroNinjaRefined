@@ -51,9 +51,9 @@ class RightPanel(QFrame):
         if not text.strip() or self.is_processing:
             return
             
-        # Add message to chat panel
-        self.chat_panel.add_message(text, is_user=True)
-        
+        # Don't add user message to chat panel here - let main_window handle it
+        # to avoid duplication
+            
         # Clear input
         self.chat_input.message_input.clear()
         

@@ -60,7 +60,7 @@ class OutputMonitor(QThread):
                             except:
                                 pass
                         
-                        # Emit with iteration info
+                        # Tag as initial and emit immediately
                         if iteration > 0:
                             self.ascCodeDetected.emit(f"[ITERATION {iteration}] {asc_code}")
                         else:
@@ -70,6 +70,7 @@ class OutputMonitor(QThread):
                     except Exception as e:
                         logger.error(f"Error reading ASC file: {str(e)}")
                 elif file_path.endswith(".png"):
+                    # Emit image path (full path)
                     self.imageDetected.emit(file_path)
                     logger.info(f"Image detected: {file_path}")
                     
@@ -140,6 +141,7 @@ class ElectroNinjaWorker(QThread):
         self.request = request
         self.prompt_id = prompt_id
         self.config = Config()
+        self.vision_processed = False
         
         # Initialize backend components
         self.llm_provider = OpenAIProvider(self.config)
@@ -165,7 +167,8 @@ class ElectroNinjaWorker(QThread):
             # Signal completion with error
             self.resultReady.emit({
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "vision_processed": self.vision_processed
             })
         finally:
             # Stop output monitor
@@ -184,6 +187,72 @@ class ElectroNinjaWorker(QThread):
             self.monitor.stop()
             self.monitor.wait()
             
+    def manual_vision_evaluation(self, image_path, original_request):
+        """
+        Manually trigger vision evaluation for an image
+        
+        Args:
+            image_path (str): Path to the image file
+            original_request (str): Original user request
+        """
+        try:
+            if not os.path.exists(image_path):
+                logger.error(f"Image does not exist for vision evaluation: {image_path}")
+                return
+                
+            logger.info(f"Manually evaluating image with vision model: {image_path}")
+            
+            # Run the vision analysis
+            vision_feedback = self.vision_processor.analyze_circuit_image(image_path, original_request)
+            
+            # Emit the feedback
+            self.visionFeedbackGenerated.emit(vision_feedback)
+            
+            # Process the feedback
+            self.process_vision_feedback(vision_feedback)
+            
+        except Exception as e:
+            logger.error(f"Error in manual vision evaluation: {str(e)}")
+            
+    def process_vision_feedback(self, vision_feedback):
+        """
+        Process vision feedback by generating a chat response
+        
+        Args:
+            vision_feedback (str): Feedback from vision model
+        """
+        try:
+            logger.info(f"Processing vision feedback: {'Y' if vision_feedback.strip() == 'Y' else 'Needs improvement'}")
+            
+            # Generate feedback response
+            response = self.orchestrator.chat_generator.generate_feedback_response(vision_feedback)
+            
+            # Tag based on whether circuit is verified
+            if vision_feedback.strip() == 'Y':
+                tagged_response = "[COMPLETE] " + response
+            else:
+                tagged_response = "[REFINING] " + response
+                
+            # Emit signal
+            self.chatResponseGenerated.emit(tagged_response)
+            
+            # Mark vision as processed
+            self.vision_processed = True
+            
+            logger.info(f"Vision feedback processed and response generated")
+            
+            # If the circuit needs refinement, trigger refinement process
+            if vision_feedback.strip() != 'Y':
+                # This would normally happen in the iteration controller
+                logger.info("Circuit needs refinement, would trigger refinement here")
+                # In a full implementation, we would:
+                # 1. Extract the latest history from orchestrator
+                # 2. Call circuit_generator.refine_asc_code
+                # 3. Send the refined code back to the UI
+                
+        except Exception as e:
+            logger.error(f"Error processing vision feedback: {str(e)}")
+            
     def _process_request(self):
         """Process a user request through the workflow orchestrator"""
         logger.info(f"Processing request: '{self.request}'")
@@ -198,7 +267,10 @@ class ElectroNinjaWorker(QThread):
         def generate_response_hook(prompt, is_circuit_related):
             """Hook to capture initial chat responses"""
             response = original_generate_response(prompt, is_circuit_related)
-            self.chatResponseGenerated.emit("[INITIAL] " + response)
+            # Add tag and emit signal
+            tagged_response = "[INITIAL] " + response
+            self.chatResponseGenerated.emit(tagged_response)
+            logger.info(f"Generated initial chat response: {response[:50]}...")
             return response
             
         def generate_feedback_hook(vision_feedback):
@@ -207,10 +279,17 @@ class ElectroNinjaWorker(QThread):
             
             # Tag based on whether circuit is verified
             if vision_feedback.strip() == 'Y':
-                self.chatResponseGenerated.emit("[COMPLETE] " + response)
+                tagged_response = "[COMPLETE] " + response
             else:
-                self.chatResponseGenerated.emit("[REFINING] " + response)
+                tagged_response = "[REFINING] " + response
                 
+            # Emit signal
+            self.chatResponseGenerated.emit(tagged_response)
+            logger.info(f"Generated feedback response: {response[:50]}...")
+            
+            # Mark vision as processed
+            self.vision_processed = True
+            
             return response
             
         def generate_asc_hook(prompt):
@@ -221,8 +300,10 @@ class ElectroNinjaWorker(QThread):
             if asc_code == "N":
                 return "N"
             
-            # Tag as initial and emit immediately
-            self.ascCodeGenerated.emit("[INITIAL] " + asc_code)
+            # Tag as initial and emit
+            tagged_asc = "[INITIAL] " + asc_code
+            self.ascCodeGenerated.emit(tagged_asc)
+            logger.info("Generated initial ASC code")
             
             return asc_code
             
@@ -233,8 +314,10 @@ class ElectroNinjaWorker(QThread):
             # Get current iteration number
             iteration = len(history)
             
-            # Tag with iteration number
-            self.ascCodeGenerated.emit(f"[ITERATION {iteration}] " + refined_asc)
+            # Tag with iteration number and emit
+            tagged_asc = f"[ITERATION {iteration}] " + refined_asc
+            self.ascCodeGenerated.emit(tagged_asc)
+            logger.info(f"Generated refined ASC code for iteration {iteration}")
             
             return refined_asc
             
@@ -244,6 +327,7 @@ class ElectroNinjaWorker(QThread):
             
             # Emit vision feedback for UI
             self.visionFeedbackGenerated.emit(analysis)
+            logger.info(f"Generated vision feedback: {'Y' if analysis.strip() == 'Y' else 'Needs improvement'}")
             
             return analysis
         
@@ -258,6 +342,12 @@ class ElectroNinjaWorker(QThread):
             # Process the request - this will run the full pipeline including vision
             result = self.orchestrator.process_request(self.request, self.prompt_id)
             
+            # Check if vision was processed
+            result["vision_processed"] = self.vision_processed
+            
+            # Check for existing image that might need vision processing
+            self._check_for_existing_image()
+            
             # Signal completion
             self.resultReady.emit(result)
         finally:
@@ -267,3 +357,30 @@ class ElectroNinjaWorker(QThread):
             self.orchestrator.circuit_generator.generate_asc_code = original_generate_asc
             self.orchestrator.circuit_generator.refine_asc_code = original_refine_asc
             self.orchestrator.vision_processor.analyze_circuit_image = original_analyze_circuit
+            
+    def _check_for_existing_image(self):
+        """Check for existing image files and process them if needed"""
+        try:
+            # Skip if vision already processed
+            if self.vision_processed:
+                return
+                
+            # Look for the image file
+            image_path = os.path.join(
+                self.config.OUTPUT_DIR,
+                f"prompt{self.prompt_id}", 
+                "output0",  # Start with first iteration
+                "image.png"
+            )
+            
+            if os.path.exists(image_path):
+                logger.info(f"Found existing image that needs processing: {image_path}")
+                
+                # Emit the image path
+                self.imageGenerated.emit(image_path)
+                
+                # Run vision evaluation
+                self.manual_vision_evaluation(image_path, self.request)
+                
+        except Exception as e:
+            logger.error(f"Error checking for existing image: {str(e)}")

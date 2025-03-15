@@ -88,7 +88,7 @@ class MiddlePanel(QFrame):
         # Image label
         self.image_label = QLabel(self.display_frame)
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("border: none; color: #AAAAAA;")
+        self.image_label.setStyleSheet("border: none;")
         
         # Setup fade effect
         self.opacity_effect = QGraphicsOpacityEffect(self.image_label)
@@ -120,6 +120,8 @@ class MiddlePanel(QFrame):
         if not os.path.exists(image_path):
             logger.error(f"Image file does not exist: {image_path}")
             return
+            
+        logger.info(f"Image file exists and is being processed: {image_path}, file size: {os.path.getsize(image_path)} bytes")
         
         # Extract iteration from path if not provided
         if iteration is None:
@@ -138,37 +140,36 @@ class MiddlePanel(QFrame):
         
         # Skip if same image
         if self.current_image_path and os.path.normpath(self.current_image_path) == os.path.normpath(image_path):
+            logger.info(f"Skipping duplicate image: {image_path}")
             return
+            
+        self.current_image_path = image_path
         
-        # Set directly if no current image
-        if not self.current_image_path:
-            self._set_image_direct(image_path)
+        # Load the pixmap first to check if it's valid
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            logger.error(f"Failed to load pixmap from image: {image_path}")
+            self._set_placeholder_text("Failed to load image")
             return
-        
-        # Animate transition
-        self.fade_animation.setStartValue(1.0)
-        self.fade_animation.setEndValue(0.0)
-        
-        try:
-            self.fade_animation.finished.disconnect()
-        except TypeError:
-            pass
-        
-        # Setup fade out/in sequence
-        new_image_path = image_path
-        
-        def fade_out_complete():
-            self._set_image_direct(new_image_path)
             
-            fade_in = QPropertyAnimation(self.opacity_effect, b"opacity")
-            fade_in.setDuration(self.transition_duration)
-            fade_in.setStartValue(0.0)
-            fade_in.setEndValue(1.0)
-            fade_in.setEasingCurve(QEasingCurve.InOutCubic)
-            fade_in.start()
+        logger.info(f"Successfully loaded pixmap: {pixmap.width()}x{pixmap.height()}")
+        
+        # Hide placeholder text when image is loaded
+        self.circuit_display.hide()
+        
+        # Set directly if no animation needed
+        if not pixmap.isNull():
+            # Scale to display frame size accounting for padding
+            scaled_pixmap = pixmap.scaled(
+                self.display_frame.width() - 40, 
+                self.display_frame.height() - 40, 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
             
-        self.fade_animation.finished.connect(fade_out_complete)
-        self.fade_animation.start()
+            # Set directly
+            self.image_label.setPixmap(scaled_pixmap)
+            logger.info(f"Set image directly: {scaled_pixmap.width()}x{scaled_pixmap.height()}")
     
     def _update_iteration_indicator(self, iteration):
         """Update the iteration indicator display"""
@@ -179,31 +180,11 @@ class MiddlePanel(QFrame):
         
         self.iteration_indicator.show()
         
-    def _set_image_direct(self, image_path):
-        """Set the image without animation"""
-        if not os.path.exists(image_path):
-            logger.error(f"Image file does not exist for direct setting: {image_path}")
-            return
-            
-        self.current_image_path = image_path
-        
-        pixmap = QPixmap(image_path)
-        if pixmap.isNull():
-            logger.error(f"Failed to load image: {image_path}")
-            self.image_label.setText("Failed to load image")
-            self.circuit_display.setText("Circuit Screenshot Placeholder")
-        else:
-            self.circuit_display.setText("")
-            
-            available_width = self.display_frame.width()
-            available_height = self.display_frame.height()
-            
-            self.image_label.setPixmap(pixmap.scaled(
-                available_width, 
-                available_height, 
-                Qt.KeepAspectRatio, 
-                Qt.SmoothTransformation
-            ))
+    def _set_placeholder_text(self, text):
+        """Show placeholder text and hide image"""
+        self.circuit_display.setText(text)
+        self.circuit_display.show()
+        self.image_label.clear()
         
     def resizeEvent(self, event):
         """Handle resize to maintain square display"""
@@ -216,12 +197,14 @@ class MiddlePanel(QFrame):
         if square_size > 0:
             self.display_frame.setFixedSize(square_size, square_size)
             
+            # Resize current image if one is displayed
             if self.current_image_path and os.path.exists(self.current_image_path):
                 pixmap = QPixmap(self.current_image_path)
                 if not pixmap.isNull():
+                    # Scale to display frame size accounting for padding
                     self.image_label.setPixmap(pixmap.scaled(
-                        square_size, 
-                        square_size, 
+                        square_size - 40, 
+                        square_size - 40, 
                         Qt.KeepAspectRatio, 
                         Qt.SmoothTransformation
                     ))
@@ -231,4 +214,5 @@ class MiddlePanel(QFrame):
         self.current_image_path = None
         self.image_label.clear()
         self.circuit_display.setText("Circuit Screenshot Placeholder")
+        self.circuit_display.show()
         self.iteration_indicator.hide()
