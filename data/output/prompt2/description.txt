@@ -1,0 +1,1 @@
+A circuit with a 3V battery and two 6-ohm resistors in parallel.

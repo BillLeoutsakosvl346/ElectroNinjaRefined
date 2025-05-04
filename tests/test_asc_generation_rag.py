@@ -1,103 +1,73 @@
 """
-tests/test_asc_generation_rag.py
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-*   Loads the description produced for prompt 1.
-*   Runs CircuitGenerator.generate_asc_code().
-*   Prints the full user‑prompt that is sent to the ASC‑generation model
-    (detected by model‑ID == provider.asc_gen_model).
-*   Verifies that the returned ASC code begins with “Version 4”.
+End‑to‑end RAG test that actually calls o4‑mini.
+
+* Loads prompt 1 description.
+* Loads FAISS index so real examples are returned.
+* Wraps provider._chat_complete to print the prompt, then calls the real API.
+* Asserts the returned ASC file starts with “Version 4”.
+
+CAUTION: consumes OpenAI credits.
 """
+
+from __future__ import annotations
 
 import os
 import sys
-import logging
 from pathlib import Path
-from types import SimpleNamespace
-from dotenv import load_dotenv
+from functools import wraps
+from typing import List, Dict
 
-# ── project imports ────────────────────────────────────────────────
+# ── repo imports (ensure root on path) ─────────────────────────────────
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT))
+sys.path.insert(0, str(ROOT))
 
-from electroninja.config.settings import Config
-from electroninja.llm.providers.openai import OpenAIProvider
-from electroninja.llm.vector_store import VectorStore
-from electroninja.backend.circuit_generator import CircuitGenerator
+from electroninja.config.settings import Config                           # noqa: E402
+from electroninja.llm.vector_store import VectorStore                      # noqa: E402
+from electroninja.llm.providers.openai import OpenAIProvider               # noqa: E402
+from electroninja.backend.circuit_generator import CircuitGenerator        # noqa: E402
 
-# ── env / logging ──────────────────────────────────────────────────
-load_dotenv()
-logging.basicConfig(level=logging.INFO)
+PROMPT_ID = 1
+DESC_PATH = Path("data/output") / f"prompt{PROMPT_ID}" / "description.txt"
 
-PROMPT_ID = 1  # data/output/prompt1/…
+assert DESC_PATH.exists(), f"Missing description file: {DESC_PATH}"
+description = DESC_PATH.read_text(encoding="utf-8").strip()
+print("\nLoaded description:\n" + description + "\n")
 
-# ----------------------------------------------------------------------
-# monkey‑patch helpers
-# ----------------------------------------------------------------------
-def _make_fake_chat_completion(target_model: str):
-    """Factory so we can compare against `provider.asc_gen_model` via closure."""
+# ── set up objects ────────────────────────────────────────────────────
+config = Config()
+vector_store = VectorStore(config)
+if not vector_store.load():
+    raise RuntimeError("Vector store failed to load. Run ingest_examples.py.")
 
-    def fake_chat_completion(*, model: str, messages, **kwargs):
-        # Only print the prompt for the ASC‑generation call
-        if model == target_model:
-            border = "=" * 60
-            print(f"\n{border}\nPROMPT SENT TO ASC MODEL ({model})\n{border}")
-            for msg in messages:
-                role = msg["role"].upper()
-                content = msg["content"]
-                print(f"{role}:\n{content}\n{'-'*40}")
+provider = OpenAIProvider(config)
+circuit_gen = CircuitGenerator(provider, vector_store)
 
-        # Minimal ChatCompletion‑like return with dummy ASC code
-        dummy_asc = (
-            "Version 4\n"
-            "SHEET 1 880 680\n"
-            "V1 0 1 DC 3V\n"
-            "R1 1 2 4\n"
-            "R2 1 2 4\n"
-        )
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=dummy_asc))]
-        )
-
-    return fake_chat_completion
+# ── wrap _chat_complete so we can see the prompt, but still hit OpenAI ─
+orig_chat_complete = provider._chat_complete
 
 
-def fake_embedding(*args, **kwargs):
-    """Return a zero vector with correct shape."""
-    zeros = [0.0] * 1536
-    return SimpleNamespace(data=[SimpleNamespace(embedding=zeros)])
+@wraps(orig_chat_complete)
+def verbose_chat_complete(*args, **kwargs):
+    model: str = kwargs.get("model") or args[1]  # type: ignore[index]
+    messages: List[Dict[str, str]] = kwargs.get("messages") or args[2]  # type: ignore[index]
+
+    print("\n" + "=" * 80)
+    print(f"PROMPT BUNDLE SENT TO MODEL  ({model})")
+    print("=" * 80 + "\n")
+    for m in messages:
+        role = m["role"].upper()
+        print(f"--- {role} ---\n{m['content']}\n")
+    print("=" * 80 + "\n")
+
+    # call the real API
+    return orig_chat_complete(*args, **kwargs)
 
 
-# ----------------------------------------------------------------------
-# test body
-# ----------------------------------------------------------------------
-def test_asc_generation_from_description():
-    desc_path = ROOT / "data" / "output" / f"prompt{PROMPT_ID}" / "description.txt"
-    assert desc_path.exists(), f"Missing description file: {desc_path}"
-    description = desc_path.read_text(encoding="utf-8").strip()
+provider._chat_complete = verbose_chat_complete  # type: ignore[method-assign]
 
-    print("\n=== LOADED DESCRIPTION ===")
-    print(description)
+# ── run generation ────────────────────────────────────────────────────
+asc_code = circuit_gen.generate_asc_code(description, PROMPT_ID)
 
-    # initialise core objects
-    config = Config()
-    provider = OpenAIProvider(config)
-    vector_store = VectorStore(config)
-    circuit_gen = CircuitGenerator(provider, vector_store)
-
-    # monkey‑patch endpoints (after objects exist)
-    provider.client.chat.completions.create = _make_fake_chat_completion(
-        provider.asc_gen_model
-    )
-    vector_store.client.embeddings.create = fake_embedding
-
-    # run generator
-    asc_code = circuit_gen.generate_asc_code(description, PROMPT_ID)
-
-    print("\n=== ASC CODE RETURNED BY GENERATOR ===")
-    print(asc_code)
-
-    assert asc_code.startswith("Version 4"), "ASC output malformed"
-
-
-if __name__ == "__main__":
-    test_asc_generation_from_description()
+print("\nReturned ASC code:\n", asc_code[:1000])
+assert asc_code.startswith("Version 4"), "ASC code should start with 'Version 4'"
+print("✅  Live call succeeded")

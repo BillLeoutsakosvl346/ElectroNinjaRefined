@@ -1,156 +1,106 @@
 # electroninja/llm/vision_analyser.py
-import os
-import logging
+"""OpenAI‑vision helper using the modern openai‑python ≥ 1.75 client API."""
+
+from __future__ import annotations
+
 import base64
-import openai
+import logging
+import os
+from pathlib import Path
+from typing import List, Dict, Any
+
+from openai import OpenAI
+
 from electroninja.config.settings import Config
 from electroninja.llm.prompts.circuit_prompts import VISION_IMAGE_ANALYSIS_PROMPT
 
-logger = logging.getLogger('electroninja')
+logger = logging.getLogger("electroninja")
+
 
 class VisionAnalyzer:
-    """Analyzes circuit images using OpenAI's vision model"""
-    
-    def __init__(self, config=None):
+    """Analyze circuit PNGs with GPT‑4o (vision)."""
+
+    def __init__(self, config: Config | None = None) -> None:
         self.config = config or Config()
-        self.model = self.config.OPENAI_VISION_MODEL  # Should be "gpt-4o"
-        openai.api_key = self.config.OPENAI_API_KEY
-        logger.info(f"Vision Analyzer initialized with OpenAI model: {self.model}")
-        
-    def analyze_circuit_image(self, image_path, prompt):
-        """
-        Analyze a circuit image to determine if it satisfies the circuit description.
-        
-        Args:
-            image_path (str): Path to the circuit image.
-            circuit_description (str): The circuit description loaded from file.
-            
-        Returns:
-            str: 'Y' if the circuit is verified, or detailed feedback if not.
-        """
+        self.model = self.config.OPENAI_VISION_MODEL  # gpt‑4o
+        self.client = OpenAI(api_key=self.config.OPENAI_API_KEY)
+        logger.info("Vision Analyzer initialised with model: %s", self.model)
+
+    # ------------------------------------------------------------------
+    # public: yes/no verification
+    # ------------------------------------------------------------------
+    def analyze_circuit_image(self, image_path: str, prompt: str) -> str:
+        """Return 'Y' or a detailed feedback string."""
+        ok, data_uri = self._prepare_image(image_path)
+        if not ok:
+            return data_uri  # <- data_uri holds an error message
+
+        messages = self._build_messages(prompt, data_uri)
         try:
-            logger.info(f"Starting analysis of circuit image: {image_path}")
-            
-            if not os.path.exists(image_path):
-                error_msg = f"Image file not found: {image_path}"
-                logger.error(error_msg)
-                return f"Error: {error_msg}"
-            
-            # Log file size
-            file_size = os.path.getsize(image_path)
-            logger.info(f"Image file size: {file_size} bytes")
-                
-            # Encode image
-            with open(image_path, "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-                logger.info(f"Successfully encoded image data (length: {len(image_data)})")
-                
-            logger.info("Sending prompt to OpenAI vision model...")
-            
-            # Call OpenAI API with both text and the image data
-            response = openai.ChatCompletion.create(
+            resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_data}",
-                                    "detail": "high",
-                                }
-                            }
-                        ]
-                    }
-                ]
+                messages=messages,
             )
-            
-            # Extract and process analysis
-            analysis = response.choices[0].message.content.strip()
-            is_verified = analysis == 'Y'
-            verification_status = "VERIFIED" if is_verified else "NOT VERIFIED"
-            logger.info(f"Vision analysis complete: Circuit {verification_status}")
-            
-            return analysis
-            
-        except Exception as e:
-            error_msg = f"Vision analysis error: {str(e)}"
-            logger.error(error_msg)
-            return f"Error: {error_msg}"
-        
-    def produce_description_of_image(self, image_path, prompt):
-        """
-        Look at the circuit image and produce a description of it.
+            return resp.choices[0].message.content.strip()
+        except Exception as exc:                        # pragma: no cover
+            err = f"Vision analysis error: {exc}"
+            logger.error(err, exc_info=True)
+            return f"Error: {err}"
 
-        Args:
-            image_path (str): Path to the circuit image.
-            prompt (str): The prompt to analyze the image and produce the description.
+    # ------------------------------------------------------------------
+    # public: produce description beginning with DESC=
+    # ------------------------------------------------------------------
+    def produce_description_of_image(self, image_path: str, prompt: str) -> str:
+        ok, data_uri = self._prepare_image(image_path)
+        if not ok:
+            return data_uri
 
-        Returns:
-            str: DESC=<the description of the image>
-        """
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "You are a meticulous circuit‑analysis expert. "
+                "Return a textual description that starts with 'DESC='."
+            ),
+        }
+        messages = [system_prompt] + self._build_messages(prompt, data_uri)
+
         try:
-            logger.info(f"Starting description of circuit image: {image_path}")
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+            )
+            out = resp.choices[0].message.content.strip()
+            return out.split("DESC=", 1)[-1].strip() if "DESC=" in out else out
+        except Exception as exc:                        # pragma: no cover
+            err = f"Vision description error: {exc}"
+            logger.error(err, exc_info=True)
+            return f"Error: {err}"
 
-            if not os.path.exists(image_path):
-                error_msg = f"Image file not found: {image_path}"
-                logger.error(error_msg)
-                return f"Error: {error_msg}"
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+    def _prepare_image(self, path: str) -> tuple[bool, str]:
+        """Return (True, data‑URI) or (False, error‑msg)."""
+        if not os.path.exists(path):
+            err = f"Image file not found: {path}"
+            logger.error(err)
+            return False, f"Error: {err}"
 
-            # Log file size
-            file_size = os.path.getsize(image_path)
-            logger.info(f"Image file size: {file_size} bytes")
+        size = os.path.getsize(path)
+        logger.info("Image file size: %d bytes", size)
 
-            # Encode image
-            with open(image_path, "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode("utf-8")
-                logger.info(f"Successfully encoded image data (length: {len(image_data)})")
+        b64 = base64.b64encode(Path(path).read_bytes()).decode("utf-8")
+        data_uri = f"data:image/png;base64,{b64}"
+        return True, data_uri
 
-            logger.info("Sending prompt to OpenAI vision model...")
-
-            # Define system prompt
-            system_prompt = {
-                "role": "system",
-                "content": (
-                    "You are a highly reliable and detail-oriented circuit analysis expert. "
-                    "You always reason step-by-step before making a final judgment. "
-                    "You base circuit interpretation strictly on electrical node connections, not layout or orientation. "
-                    "Be careful: parallel components may be aligned horizontally. "
-                    "Only describe what is factual from the image and return a description that begins with 'DESC='."
-                )
+    @staticmethod
+    def _build_messages(prompt: str, data_uri: str) -> List[Dict[str, Any]]:
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_uri, "detail": "high"}},
+                ],
             }
-
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
-                model=self.model,
-                messages=[
-                    system_prompt,
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_data}",
-                                    "detail": "high",
-                                }
-                            }
-                        ]
-                    }
-                ]
-            )
-
-            # Extract and process analysis
-            output = response.choices[0].message.content.strip()
-
-            description = output.split('DESC=')[1].strip()
-
-            return description
-
-        except Exception as e:
-            error_msg = f"Vision analysis error: {str(e)}"
-            logger.error(error_msg)
-            return f"Error: {error_msg}"
+        ]

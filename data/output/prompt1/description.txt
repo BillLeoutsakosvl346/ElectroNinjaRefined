@@ -1,1 +1,1 @@
-A circuit with a 3V battery and two 4-ohm resistors in parallel.
+A circuit with a 3V battery and three 6-ohm resistors in parallel.
