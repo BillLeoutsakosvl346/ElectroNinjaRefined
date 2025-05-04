@@ -1,1 +1,0 @@
-A circuit with a voltage source V1 = 5V in parallel with a 4-ohm resistor R1, a 4-ohm resistor R2, and a 16-ohm resistor R4.

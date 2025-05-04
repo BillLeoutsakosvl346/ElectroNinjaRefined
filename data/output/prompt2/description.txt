@@ -1,1 +1,0 @@
-A circuit with a 5V voltage source (V1) in parallel with a set of three 4Ω resistors (R1, R2, and R4) connected in series.
