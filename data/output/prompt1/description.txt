@@ -1,1 +1,1 @@
-A circuit with a 3V battery and three 6-ohm resistors in parallel.
+A circuit with a 3V DC battery, a 5-ohm resistor, and a 5mF capacitor in series.

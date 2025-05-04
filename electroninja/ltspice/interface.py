@@ -276,7 +276,7 @@ class LTSpiceInterface:
             # Step 5: Press Enter to save PDF.
             save_dlg.type_keys("{ENTER}", pause=0.0001)
             logger.info("Pressed Enter to save PDF")
-            time.sleep(4)  # Wait 4 seconds for PDF generation
+            time.sleep(2)  # Wait 4 seconds for PDF generation
             
             # Step 6: Now explicitly close LTSpice after PDF generation
             self._close_ltspice(quiet=False)
