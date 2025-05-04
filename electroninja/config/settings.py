@@ -19,7 +19,7 @@ class Config:
     
     # LLM configuration
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    ASC_MODEL = os.getenv("ASC_MODEL", "o3-mini")
+    ASC_MODEL = os.getenv("ASC_MODEL", "o4-mini")
     CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
     EVALUATION_MODEL = os.getenv("EVALUATION_MODEL", "gpt-4o-mini")
     DESCRIPTION_MODEL = os.getenv("DESCRIPTION_MODEL", "gpt-4o-mini")
