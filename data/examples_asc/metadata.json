@@ -72,32 +72,77 @@
 }
 ,
 
-  {
-      "asc_path": "data/examples_asc/zener_regulator.asc",
-      "description": "A voltage regulator circuit using a Zener diode and resistor to maintain a constant DC voltage."
-  },
-  {
-      "asc_path": "data/examples_asc/led_current_limiter.asc",
-      "description": "A simple LED circuit with a current-limiting resistor to safely power an LED from a DC voltage source."
-  },
-  {
-      "asc_path": "data/examples_asc/rc_integrator.asc",
-      "description": "An RC integrator circuit that produces an output voltage proportional to the time integral of the input signal."
-  },
-  {
-      "asc_path": "data/examples_asc/rc_differentiator.asc",
-      "description": "An RC differentiator circuit that outputs a voltage proportional to the rate of change of the input signal."
-  },
-  {
-      "asc_path": "data/examples_asc/voltage_doubler.asc",
-      "description": "A voltage doubler circuit that uses diodes and capacitors to effectively double the peak voltage of an AC source."
-  },
-  {
-      "asc_path": "data/examples_asc/ac_coupling.asc",
-      "description": "An AC coupling circuit that employs a capacitor to block DC components while allowing AC signals to pass."
-  },
-  {
-      "asc_path": "data/examples_asc/diode_peak_detector.asc",
-      "description": "A diode peak detector circuit that uses a diode, resistor, and capacitor to capture the peak value of an AC signal."
-  }
+{
+    "asc_path": "data/examples_asc/zener_regulator.asc",
+    "description": "A voltage regulator circuit using a Zener diode and resistor to maintain a constant DC voltage."
+},
+{
+    "asc_path": "data/examples_asc/led_current_limiter.asc",
+    "description": "A simple LED circuit with a current-limiting resistor to safely power an LED from a DC voltage source."
+},
+{
+    "asc_path": "data/examples_asc/rc_integrator.asc",
+    "description": "An RC integrator circuit that produces an output voltage proportional to the time integral of the input signal."
+},
+{
+    "asc_path": "data/examples_asc/rc_differentiator.asc",
+    "description": "An RC differentiator circuit that outputs a voltage proportional to the rate of change of the input signal."
+},
+{
+    "asc_path": "data/examples_asc/voltage_doubler.asc",
+    "description": "A voltage doubler circuit that uses diodes and capacitors to effectively double the peak voltage of an AC source."
+},
+{
+    "asc_path": "data/examples_asc/ac_coupling.asc",
+    "description": "An AC coupling circuit that employs a capacitor to block DC components while allowing AC signals to pass."
+},
+{
+    "asc_path": "data/examples_asc/diode_peak_detector.asc",
+    "description": "A diode peak detector circuit that uses a diode, resistor, and capacitor to capture the peak value of an AC signal."
+},
+{
+    "asc_path": "data/examples_asc/diode_peak_detector.asc",
+    "description": "A diode peak detector circuit that uses a diode, resistor, and capacitor to capture the peak value of an AC signal."
+},
+{
+    "asc_path": "data/examples_asc/4series.asc",
+    "description": "A DC battery 200V with 4 resistors 1, 22, 34 and 36 ohms in series."
+},
+{
+    "asc_path": "data/examples_asc/4parallel.asc",
+    "description": "A DC battery 15V with 4 resistors 2, 3, 4, 8 ohms in parallel."
+},
+{
+    "asc_path": "data/examples_asc/2series1parallel.asc",
+    "description": "A DC batter 25V with 2 resistors 5 and 23 ohms in series and 1 resistor 1 ohm in parallel with the other 2."
+},
+{
+    "asc_path": "data/examples_asc/2series.asc",
+    "description": "A DC battery 13V with 2 resistors 3 and 17 ohms in series."
+},
+{
+    "asc_path": "data/examples_asc/2ser2par.asc",
+    "description": "A 13V DC battery with an 65 and a 43 ohm resistor in series, both in parallel with a 12 and a 22 ohm resistor in series."
+},
+{
+    "asc_path": "data/examples_asc/2indseries.asc",
+    "description": "An AC battery with amplitude 3V and frequency 30Hz with 2 inductors 4mH and 8mH in series."
+},
+{
+    "asc_path": "data/examples_asc/2capparallel.asc",
+    "description": "An AC battery with amplitude 7V and frequency 70Hz with 2 capacitors both 8mF in parallel."
+},
+{
+    "asc_path": "data/examples_asc/2capindseries1capparallel.asc",
+    "description": "A DC battery 3V with a 2mF capacitor and a 4mH inductor in series, both in parallel with a 5mF capacitor."
+},
+{
+    "asc_path": "data/examples_asc/rclpar.asc",
+    "description": "A DC battery 5V with a 6 ohm resistor, a 5mF capacitor and a 9mH inductor in parallel."
+},
+{
+    "asc_path": "data/examples_asc/rclser.asc",
+    "description": "An AC battery with amplitude 4V and frequency 40Hz with a a 9mF capacitor, 7 ohm resistor and a 2mH inductor in series."
+}
+
 ]
